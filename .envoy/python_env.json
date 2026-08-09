@@ -1,3 +1,4 @@
 {
+    "+=PATH": "${__BUNDLE__}/bin",
     "+=PYTHONPATH": "${__BUNDLE__}/py"
 }

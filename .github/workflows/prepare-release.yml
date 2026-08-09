@@ -22,7 +22,7 @@ concurrency:
 jobs:
   prepare:
     name: Prepare release pull request
-    runs-on: [self-hosted, X64, Windows, synology]
+    runs-on: [self-hosted, X64, Windows]
     env:
       ENVOY_BUILD_STACK: ${{ github.workspace }}/tests/fixtures/stacks/build/build.estack
       ENVOY_STACK: ${{ github.workspace }}/tests/fixtures/stacks/build/build.estack

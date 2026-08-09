@@ -19,7 +19,7 @@ permissions:
 jobs:
   build-windows:
     name: Build Windows executable
-    runs-on: [self-hosted, X64, Windows, synology]
+    runs-on: [self-hosted, X64, Windows]
     env:
       ENVOY_RELEASE: v${{ inputs.envoy_version || '0.6.2' }}
       ENVOY_BUILD_STACK: ${{ github.workspace }}/tests/fixtures/stacks/build/build.estack

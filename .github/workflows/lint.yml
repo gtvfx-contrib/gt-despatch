@@ -12,7 +12,7 @@ permissions:
 jobs:
   python:
     name: Python tests and Ruff
-    runs-on: [self-hosted, X64, Windows, synology]
+    runs-on: [self-hosted, X64, Windows]
     env:
       ENVOY_BUILD_STACK: ${{ github.workspace }}/tests/fixtures/stacks/build/build.estack
       ENVOY_STACK: ${{ github.workspace }}/tests/fixtures/stacks/build/build.estack
