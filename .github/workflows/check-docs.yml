@@ -36,19 +36,54 @@ jobs:
       - name: Build site strictly
         run: python -m properdocs build --clean --strict
 
+      # lycheeverse/lychee-action@v2 always downloads the glibc-linked
+      # (unknown-linux-gnu) lychee build, which requires GLIBC >= 2.38/2.39.
+      # This self-hosted runner's system glibc predates that, so the action
+      # fails immediately with "version `GLIBC_2.38' not found (required by
+      # lychee)" before checking a single link. This is a known, still-open
+      # upstream limitation with no fixed release yet:
+      #   https://github.com/lycheeverse/lychee-action/issues/342
+      #   https://github.com/lycheeverse/lychee-action/pull/343
+      # Work around it by installing the statically linked musl build
+      # ourselves (it has no glibc dependency at all) and running lychee
+      # directly, replicating the action's args/fail/failIfEmpty/jobSummary
+      # behavior.
       - name: Check external links
         if: github.event_name != 'pull_request'
-        uses: lycheeverse/lychee-action@v2
-        with:
-          args: >-
-            --no-progress
-            --max-retries 3
-            --timeout 20
-            './**/*.html'
-            '../README.md'
-          fail: true
-          failIfEmpty: true
-          format: markdown
-          jobSummary: true
-          lycheeVersion: v0.24.1
-          workingDirectory: site
+        working-directory: site
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          lychee_version=v0.24.1
+          download_dir="${RUNNER_TEMP}/lychee-download"
+          rm -rf "${download_dir}" && mkdir -p "${download_dir}"
+          curl -sfL "https://github.com/lycheeverse/lychee/releases/download/lychee-${lychee_version}/lychee-x86_64-unknown-linux-musl.tar.gz" |
+            tar -xz -C "${download_dir}"
+          # The musl archive nests the binary in a lychee-<target>/ folder
+          # instead of extracting it flat.
+          if [ ! -f "${download_dir}/lychee" ]; then
+            download_dir="$(echo "${download_dir}"/lychee-*)"
+          fi
+          install -m 0755 -t "${RUNNER_TEMP}/lychee/bin" -D "${download_dir}/lychee"
+          export PATH="${RUNNER_TEMP}/lychee/bin:${PATH}"
+
+          mkdir -p lychee
+          set +e
+          lychee --mode task --format markdown --output lychee/out.md \
+            --no-progress --max-retries 3 --timeout 20 \
+            './**/*.html' '../README.md'
+          lychee_exit_code=$?
+          set -e
+
+          cat lychee/out.md
+          echo
+
+          if grep -qE 'Total\s+\|\s+0' lychee/out.md; then
+            echo "No links were found. This usually indicates a configuration error." | tee -a lychee/out.md
+            cat lychee/out.md > "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+
+          cat lychee/out.md > "${GITHUB_STEP_SUMMARY}"
+          exit "${lychee_exit_code}"
