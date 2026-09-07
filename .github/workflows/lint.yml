@@ -133,6 +133,19 @@ jobs:
           ./scripts/install-envoy-release.ps1
           -ReleaseTag "${{ steps.release-state.outputs.envoy_tag }}"
 
+      - name: Install Qt runtime libraries (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        # PySide6's wheel links against these at load time, but ubuntu-latest
+        # doesn't ship them by default -- without them, importing any Qt
+        # submodule that needs EGL/PulseAudio fails, which Qt.py's own
+        # eager-import step (Qt.py's _install()) turns into a confusing
+        # "partially initialized module" AttributeError rather than a clear
+        # missing-library error.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libpulse0
+
       - name: Install development dependencies
         shell: pwsh
         run: |
