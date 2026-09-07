@@ -100,6 +100,15 @@ jobs:
           - runner: macos-latest
             os_name: macOS
     runs-on: ${{ matrix.runner }}
+    env:
+      # No display server is available on these hosted runners; Qt's default
+      # platform plugin (xcb on Linux, cocoa on macOS) needs one to open a
+      # window and aborts the process outright if it can't. Despatch's own
+      # tests construct a real QApplication (see tests/conftest.py), so the
+      # offscreen platform plugin (bundled with Qt, no native window needed)
+      # is required here -- this only affects test execution, not the
+      # windowed executable produced by build-release.yml.
+      QT_QPA_PLATFORM: offscreen
     # No Linux/macOS build of the ext:python / ext:pyside Envoy bundles this
     # repository's own build Stack pins exists yet (both are Windows-only
     # prebuilt artifacts today) -- so unlike the Windows job above, this one
