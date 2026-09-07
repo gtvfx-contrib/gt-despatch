@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -305,7 +306,9 @@ class EnvoyGateway:
                 raise RuntimeError("Explicit Stack state has no selection")
             command_line.extend(("--stack", str(stack_state.selection.path)))
         command_line.extend((application.command, *application.args))
-        return subprocess.list2cmdline(command_line)
+        if sys.platform == "win32":
+            return subprocess.list2cmdline(command_line)
+        return shlex.join(command_line)
 
     def _resolveStackSelection(self, stack_value: str) -> _models.StackSelection:
         """Resolve a persisted name or path to an explicit Stack selection."""
