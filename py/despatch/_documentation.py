@@ -56,6 +56,23 @@ class _DocumentationServer(http.server.ThreadingHTTPServer):
         self.last_request_time = time.monotonic()
         super().__init__(server_address, request_handler_class)
 
+    def server_bind(self) -> None:
+        """Bind without the base class's reverse-DNS lookup.
+
+        Note:
+            ``http.server.HTTPServer.server_bind`` calls
+            ``socket.getfqdn(host)`` to populate ``server_name``, which is
+            never used for this loopback-only, handshake-driven server. That
+            lookup can take many seconds -- or hang outright -- on hosts with
+            unusual DNS/mDNS resolver behavior (observed on a GitHub-hosted
+            macOS runner); skip it entirely.
+
+        """
+        http.server.socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
+
 
 def getDocumentationSite() -> Path | None:
     """Return the generated documentation site available to this process.
