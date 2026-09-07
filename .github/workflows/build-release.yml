@@ -40,6 +40,16 @@ jobs:
         with:
           python-version: '3.11.9'
 
+      - name: Compute artifact reference
+        shell: pwsh
+        run: |
+          # github.ref_name is the bare tag on a real release push (e.g.
+          # "v0.6.2"), but a manual workflow_dispatch test run against a
+          # feature branch can contain slashes -- invalid in an artifact
+          # name. Sanitize once and reuse everywhere below.
+          $artifactRef = $env:GITHUB_REF_NAME -replace '/', '-'
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "ARTIFACT_REF=$artifactRef"
+
       - name: Bootstrap selected Envoy release
         shell: pwsh
         env:
@@ -130,7 +140,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: despatch-${{ github.ref_name }}-windows-x64
+          name: despatch-${{ env.ARTIFACT_REF }}-windows-x64
           path: dist/despatch.exe
           if-no-files-found: error
 
@@ -209,6 +219,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11.9'
+
+      - name: Compute artifact reference
+        shell: pwsh
+        run: |
+          # See the Windows job's identically-named step for why this is
+          # sanitized rather than using github.ref_name directly.
+          $artifactRef = $env:GITHUB_REF_NAME -replace '/', '-'
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "ARTIFACT_REF=$artifactRef"
 
       - name: Bootstrap selected Envoy release
         shell: pwsh
@@ -307,7 +325,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: despatch-${{ github.ref_name }}-${{ matrix.artifact_suffix }}
+          name: despatch-${{ env.ARTIFACT_REF }}-${{ matrix.artifact_suffix }}
           path: ${{ matrix.os_name == 'macOS' && 'dist/Despatch.app' || 'dist/despatch' }}
           if-no-files-found: error
 
@@ -319,11 +337,11 @@ jobs:
             # softprops/action-gh-release only accepts single files, and a
             # release asset can't be a directory -- zip the .app bundle so
             # Finder can still unpack it as a normal double-clickable app.
-            $zipPath = 'dist/despatch-${{ github.ref_name }}-macos.zip'
+            $zipPath = 'dist/despatch-${{ env.ARTIFACT_REF }}-macos.zip'
             Compress-Archive -LiteralPath 'dist/Despatch.app' -DestinationPath $zipPath
             $zipPath
           } else {
-            $renamedPath = 'dist/despatch-${{ github.ref_name }}-linux-x64'
+            $renamedPath = 'dist/despatch-${{ env.ARTIFACT_REF }}-linux-x64'
             Copy-Item -LiteralPath 'dist/despatch' -Destination $renamedPath
             $renamedPath
           }
