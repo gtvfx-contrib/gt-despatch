@@ -78,6 +78,41 @@ def testSettingsRoundTrip(tmp_path):
     assert reloaded.stack_refresh_interval_seconds == 600
 
 
+def testClearLaunchHistoryRemovesOnlyOneEntry(tmp_path):
+    settings_path = tmp_path / "settings.json"
+    store = _settings.SettingsStore(settings_path)
+    store.recordLaunch("gt:test:one")
+    store.recordLaunch("gt:test:two")
+
+    store.clearLaunchHistory("gt:test:one")
+
+    assert store.recent_applications == ("gt:test:two",)
+    reloaded = _settings.SettingsStore(settings_path)
+    assert reloaded.recent_applications == ("gt:test:two",)
+
+
+def testClearLaunchHistoryIsANoOpForUnknownApplication(tmp_path):
+    settings_path = tmp_path / "settings.json"
+    store = _settings.SettingsStore(settings_path)
+    store.recordLaunch("gt:test:one")
+
+    store.clearLaunchHistory("gt:test:unknown")
+
+    assert store.recent_applications == ("gt:test:one",)
+
+
+def testHideUnusedApplicationsRoundTrip(tmp_path):
+    settings_path = tmp_path / "settings.json"
+    store = _settings.SettingsStore(settings_path)
+
+    assert store.hide_unused_applications is False
+    store.setHideUnusedApplications(True)
+    assert store.hide_unused_applications is True
+
+    reloaded = _settings.SettingsStore(settings_path)
+    assert reloaded.hide_unused_applications is True
+
+
 def testInvalidSettingsFallBackToDefaults(tmp_path):
     settings_path = tmp_path / "settings.json"
     settings_path.write_text("{not json", encoding="utf-8")

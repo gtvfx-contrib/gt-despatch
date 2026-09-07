@@ -6,6 +6,7 @@ import dataclasses
 import logging
 import os
 import sys
+import webbrowser
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -161,6 +162,9 @@ class DespatchApplication(QtCore.QObject):
         self._window.launchRequested.connect(self._launchApplication)
         self._window.favoriteToggleRequested.connect(self._toggleFavorite)
         self._window.copyRequested.connect(self._copyCommand)
+        self._window.homepageRequested.connect(self._openApplicationHomepage)
+        self._window.historyClearRequested.connect(self._clearApplicationHistory)
+        self._window.hideUnusedToggled.connect(self._setHideUnusedApplications)
         self._window.stackRequested.connect(self._switchStack)
         self._window.customStackRequested.connect(self._chooseCustomStack)
         self._window.documentationRequested.connect(self._openDocumentation)
@@ -414,6 +418,20 @@ class DespatchApplication(QtCore.QObject):
         self._settings.toggleFavorite(stable_id)
         self._refreshViews()
 
+    def _clearApplicationHistory(self, stable_id: str) -> None:
+        """Remove one application's launch history and refresh both surfaces."""
+        if stable_id not in self._applications:
+            return
+        self._settings.clearLaunchHistory(stable_id)
+        self._refreshViews()
+
+    def _setHideUnusedApplications(self, hidden: bool) -> None:
+        """Persist the hide-unused-applications filter and refresh the catalog."""
+        if hidden == self._settings.hide_unused_applications:
+            return
+        self._settings.setHideUnusedApplications(hidden)
+        self._refreshViews()
+
     def _copyCommand(self, stable_id: str) -> None:
         """Copy a platform-quoted Envoy command to the clipboard."""
         application = self._applications.get(stable_id)
@@ -423,6 +441,26 @@ class DespatchApplication(QtCore.QObject):
             self._gateway.formatCommand(application, self._stack_state)
         )
         self._window.setReady("Envoy command copied")
+
+    def _openApplicationHomepage(self, stable_id: str) -> None:
+        """Open an application's homepage without blocking the Qt thread."""
+        application = self._applications.get(stable_id)
+        if application is None or not application.homepage:
+            return
+
+        def on_success(unused_result: bool) -> None:
+            self._window.setReady(f"Opened {application.name} homepage in your browser")
+
+        def on_error(error: BaseException) -> None:
+            message = str(error) or error.__class__.__name__
+            self._window.setError(f"Could not open homepage: {message}")
+            self._showErrorDialog("Homepage could not be opened", message)
+
+        self._submit(
+            lambda: webbrowser.open(application.homepage, new=2),
+            on_success,
+            on_error,
+        )
 
     def _showSettings(self) -> None:
         """Show settings and apply accepted changes transactionally."""
@@ -505,6 +543,7 @@ class DespatchApplication(QtCore.QObject):
             self._snapshot,
             self._settings.favorites,
             self._settings.recent_applications,
+            self._settings.hide_unused_applications,
         )
         self._tray_icon.setState(
             self._snapshot,

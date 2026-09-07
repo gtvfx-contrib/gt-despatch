@@ -31,7 +31,8 @@ available from the command line but do not appear in the launcher.
       "group": "creative",
       "keywords": ["paint", "image", "concept"],
       "platforms": ["windows", "linux"],
-      "inTerminal": false
+      "inTerminal": false,
+      "homepage": "https://krita.org"
     }
   ]
 }
@@ -147,6 +148,7 @@ groups or suppression declares an empty array.
 | `keywords` | No | Additional search terms |
 | `platforms` | No | Any of `windows`, `macos`, or `linux` |
 | `inTerminal` | No | Launch in a new console; defaults to `false` |
+| `homepage` | No | `http://` or `https://` URL opened by the "Open homepage" action |
 
 Application identity combines the bundle ID and application ID. This makes
 favorites and history stable across refreshes while avoiding collisions
