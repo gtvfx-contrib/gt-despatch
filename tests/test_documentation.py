@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 from types import SimpleNamespace
@@ -48,9 +49,13 @@ def testDocumentationServerServesFilesAndRejectsListings(monkeypatch, tmp_path):
         )
     )
     server_thread.start()
-    for _unused_attempt in range(100):
-        if ready_path.exists():
-            break
+    # A fixed, small attempt budget is flaky on a cold/loaded CI runner (the
+    # server thread may simply not have started yet) -- wait against a
+    # generous wall-clock deadline instead of a fixed retry count.
+    deadline = time.monotonic() + 10
+    while not ready_path.exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Documentation server did not report readiness in time.")
         server_thread.join(0.01)
 
     result = json.loads(ready_path.read_text(encoding="utf-8"))

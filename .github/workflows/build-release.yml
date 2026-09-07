@@ -218,6 +218,14 @@ jobs:
           ./scripts/install-envoy-release.ps1
           -ReleaseTag "$env:ENVOY_RELEASE"
 
+      - name: Install Qt runtime libraries (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        # See lint.yml's python-unix job for why these are needed.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libpulse0
+
       - name: Install executable build tools
         shell: pwsh
         run: |
