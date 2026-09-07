@@ -179,3 +179,151 @@ jobs:
               issue_number: issue.number,
               state: 'closed',
             });
+
+  build-unix:
+    name: Build ${{ matrix.os_name }} executable
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            os_name: Linux
+            artifact_suffix: linux-x64
+          - runner: macos-latest
+            os_name: macOS
+            artifact_suffix: macos
+    runs-on: ${{ matrix.runner }}
+    env:
+      ENVOY_RELEASE: v${{ inputs.envoy_version || '0.6.2' }}
+    # No Linux/macOS build of the ext:python / ext:pyside Envoy bundles this
+    # repository's build Stack pins exists yet -- see lint.yml for the same
+    # note. PySide6/Qt.py are installed directly via pip here (matching
+    # pyproject.toml's exact pins) instead of resolved through envoy's Stack;
+    # envoy itself (CLI + Python API) is still sourced from the real,
+    # already-cross-platform release via install-envoy-release.ps1.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.9'
+
+      - name: Bootstrap selected Envoy release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          ./scripts/install-envoy-release.ps1
+          -ReleaseTag "$env:ENVOY_RELEASE"
+
+      - name: Install executable build tools
+        shell: pwsh
+        run: |
+          $sitePackages = Join-Path $env:ENVOY_SITE_PACKAGES 'site-packages'
+          python -m pip install `
+            --disable-pip-version-check --upgrade --target $sitePackages `
+            '.[docs]' 'PyInstaller==6.21.0' 'PySide6==6.11.1' 'Qt.py==2.0.5'
+
+      - name: Build executable
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = Join-Path $env:ENVOY_SITE_PACKAGES 'site-packages'
+          $pythonPath = (Get-Command python).Source
+          ./scripts/build-executable.ps1 -SkipToolInstall -PythonExecutable $pythonPath
+
+      - name: Verify executable starts
+        shell: pwsh
+        run: |
+          $binary = if ('${{ matrix.os_name }}' -eq 'macOS') {
+            Join-Path (Join-Path (Join-Path 'dist' 'Despatch.app') 'Contents' 'MacOS') 'Despatch'
+          } else {
+            Join-Path 'dist' 'despatch'
+          }
+          & chmod +x $binary
+          & $binary --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "$binary --version failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Verify bundled documentation
+        shell: pwsh
+        run: |
+          $binary = if ('${{ matrix.os_name }}' -eq 'macOS') {
+            Join-Path (Join-Path (Join-Path 'dist' 'Despatch.app') 'Contents' 'MacOS') 'Despatch'
+          } else {
+            Join-Path 'dist' 'despatch'
+          }
+          $readyPath = Join-Path $env:RUNNER_TEMP 'despatch-docs-ready.json'
+          Remove-Item -LiteralPath $readyPath -Force -ErrorAction SilentlyContinue
+          $process = Start-Process `
+              -FilePath $binary `
+              -ArgumentList '--docs-server', $readyPath `
+              -PassThru
+          try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            while (-not (Test-Path -LiteralPath $readyPath)) {
+              if ($process.HasExited) {
+                throw "Documentation helper exited with code $($process.ExitCode)."
+              }
+              if ([DateTime]::UtcNow -ge $deadline) {
+                throw 'Timed out waiting for the documentation helper.'
+              }
+              Start-Sleep -Milliseconds 100
+            }
+            $ready = Get-Content -LiteralPath $readyPath -Raw | ConvertFrom-Json
+            if ($ready.error) {
+              throw "Documentation helper failed: $($ready.error)"
+            }
+            $response = Invoke-WebRequest -Uri $ready.url -UseBasicParsing
+            if ($response.StatusCode -ne 200 -or $response.Content -notmatch '<title>Despatch') {
+              throw 'The bundled documentation home page is invalid.'
+            }
+            $asset = Invoke-WebRequest -Uri "$($ready.url)search/search_index.json" -UseBasicParsing
+            if ($asset.StatusCode -ne 200) {
+              throw 'The bundled documentation search index is unavailable.'
+            }
+          } finally {
+            # The helper spawns its own HTTP-server child process, so a plain
+            # `Stop-Process` on the parent alone would leak it. `pkill -P`
+            # (available on both Linux and macOS) targets direct children;
+            # this process tree is only one level deep (helper -> server),
+            # so a single pass is sufficient here.
+            & pkill -P $process.Id 2>$null
+            Start-Sleep -Milliseconds 200
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $readyPath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: despatch-${{ github.ref_name }}-${{ matrix.artifact_suffix }}
+          path: ${{ matrix.os_name == 'macOS' && 'dist/Despatch.app' || 'dist/despatch' }}
+          if-no-files-found: error
+
+      - name: Resolve release asset path
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $assetPath = if ('${{ matrix.os_name }}' -eq 'macOS') {
+            # softprops/action-gh-release only accepts single files, and a
+            # release asset can't be a directory -- zip the .app bundle so
+            # Finder can still unpack it as a normal double-clickable app.
+            $zipPath = 'dist/despatch-${{ github.ref_name }}-macos.zip'
+            Compress-Archive -LiteralPath 'dist/Despatch.app' -DestinationPath $zipPath
+            $zipPath
+          } else {
+            $renamedPath = 'dist/despatch-${{ github.ref_name }}-linux-x64'
+            Copy-Item -LiteralPath 'dist/despatch' -Destination $renamedPath
+            $renamedPath
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "RELEASE_ASSET_PATH=$assetPath"
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.RELEASE_ASSET_PATH }}
+          fail_on_unmatched_files: true
