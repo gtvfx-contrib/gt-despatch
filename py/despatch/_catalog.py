@@ -431,6 +431,18 @@ class CatalogLoader:
             order,
             diagnostics,
         )
+        homepage = application_data.get("homepage", "")
+        if not isinstance(homepage, str):
+            self._addApplicationDiagnostic(
+                diagnostics, manifest_path, order, "'homepage' must be a string"
+            )
+            return None
+        homepage = homepage.strip()
+        if homepage and not homepage.casefold().startswith(("http://", "https://")):
+            self._addApplicationDiagnostic(
+                diagnostics, manifest_path, order, "'homepage' must be an http(s) URL"
+            )
+            return None
         return _models.ApplicationEntry(
             stable_id=f"{bundle.bundle_id}:{application_id}",
             application_id=application_id,
@@ -445,6 +457,7 @@ class CatalogLoader:
             in_terminal=in_terminal,
             order=order,
             source_path=manifest_path,
+            homepage=homepage,
         )
 
     def _resolveIconPath(
