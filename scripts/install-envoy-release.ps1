@@ -70,11 +70,21 @@ if (Test-Path -LiteralPath $environment_path) {
 
 Write-Host "Creating an isolated Envoy installation at '$environment_path'."
 New-Item -ItemType Directory -Path $environment_path | Out-Null
-# Consumers (this repo's CI workflows) re-derive the pip install target as
-# Join-Path $env:ENVOY_SITE_PACKAGES 'site-packages' -- keep both sides in
-# sync if this layout changes.
 $site_packages_root = Join-Path $environment_path "packages"
-$python_site_packages = Join-Path $site_packages_root "site-packages"
+# On Windows, envoy resolves the dev Stack's Python through the ext:python
+# bundle, whose own environment file hard-codes
+# "${ENVOY_SITE_PACKAGES}/Python311/site-packages" -- that layout is fixed by
+# a bundle this repo doesn't own, not a convention of this script, so it must
+# be matched exactly. Non-Windows platforms don't resolve Python through that
+# bundle at all (no Linux/macOS build of it exists yet); CI installs
+# dependencies directly via pip there instead, so this script is free to use
+# a simpler layout. Consumers (this repo's CI workflows) re-derive this same
+# path -- keep both sides in sync if it changes.
+$python_site_packages = if ($is_windows_platform) {
+    Join-Path $site_packages_root "Python311" "site-packages"
+} else {
+    Join-Path $site_packages_root "site-packages"
+}
 New-Item -ItemType Directory -Path $python_site_packages -Force | Out-Null
 
 $headers = @{
