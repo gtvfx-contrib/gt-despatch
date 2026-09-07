@@ -119,7 +119,7 @@ def testSingleInstanceNotifiesPrimary(qapp):
 
 
 def testTrayMenuRequestsDocumentation(qapp):
-    tray_icon = _tray_icon.DespatchTrayIcon()
+    tray_icon = _tray_icon.DespatchTrayIcon(qapp)
     tray_icon.setState(
         _models.CatalogSnapshot(_models.StackState(_models.StackMode.PROMPT), (), (), ()),
         (),
@@ -139,7 +139,7 @@ def testTrayMenuRequestsDocumentation(qapp):
 
 
 def testTrayMenuRequestsRefresh(qapp):
-    tray_icon = _tray_icon.DespatchTrayIcon()
+    tray_icon = _tray_icon.DespatchTrayIcon(qapp)
     received = []
     tray_icon.refreshRequested.connect(lambda: received.append(True))
     refresh_action = next(
@@ -153,7 +153,7 @@ def testTrayMenuRequestsRefresh(qapp):
 
 
 def testSetRefreshingSwapsIconAndTooltip(qapp):
-    tray_icon = _tray_icon.DespatchTrayIcon()
+    tray_icon = _tray_icon.DespatchTrayIcon(qapp)
     tray_icon.setState(
         _models.CatalogSnapshot(_models.StackState(_models.StackMode.PROMPT), (), (), ()),
         (),
@@ -173,7 +173,7 @@ def testSetRefreshingSwapsIconAndTooltip(qapp):
 
 
 def testSetRefreshingIsIdempotent(qapp):
-    tray_icon = _tray_icon.DespatchTrayIcon()
+    tray_icon = _tray_icon.DespatchTrayIcon(qapp)
 
     tray_icon.setRefreshing(True)
     refreshing_tooltip = tray_icon.toolTip()
@@ -183,7 +183,7 @@ def testSetRefreshingIsIdempotent(qapp):
 
 
 def testSetStateWhileRefreshingKeepsRefreshingTooltip(qapp):
-    tray_icon = _tray_icon.DespatchTrayIcon()
+    tray_icon = _tray_icon.DespatchTrayIcon(qapp)
     tray_icon.setRefreshing(True)
 
     tray_icon.setState(
