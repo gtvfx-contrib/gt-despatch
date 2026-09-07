@@ -55,7 +55,10 @@ def testDocumentationServerServesFilesAndRejectsListings(monkeypatch, tmp_path):
     deadline = time.monotonic() + 10
     while not ready_path.exists():
         if time.monotonic() >= deadline:
-            raise TimeoutError("Documentation server did not report readiness in time.")
+            raise TimeoutError(
+                "Documentation server did not report readiness in time "
+                f"(server thread alive: {server_thread.is_alive()})."
+            )
         server_thread.join(0.01)
 
     result = json.loads(ready_path.read_text(encoding="utf-8"))
