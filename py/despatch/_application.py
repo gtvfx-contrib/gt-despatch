@@ -190,6 +190,7 @@ class DespatchApplication(QtCore.QObject):
                 self._catalog_refresh_queued = True
             return
         self._catalog_refresh_active = True
+        self._tray_icon.setRefreshing(True)
         request_generation = self._state_generation
         if trigger == "monitor":
             self._window.setReady("Stack update detected; refreshing…")
@@ -277,6 +278,7 @@ class DespatchApplication(QtCore.QObject):
         """Release the refresh guard and run one coalesced manual refresh."""
         self._catalog_refresh_active = False
         if not self._catalog_refresh_queued:
+            self._tray_icon.setRefreshing(False)
             return
         self._catalog_refresh_queued = False
         QtCore.QTimer.singleShot(0, self.refreshCatalog)

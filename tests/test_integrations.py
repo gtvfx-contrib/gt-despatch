@@ -17,6 +17,18 @@ def testProductIconUsesRepositoryResources(qapp):
     assert not _icons.loadProductIcon().isNull()
 
 
+def testRefreshingIconIsDistinctFromProductIcon(qapp):
+    icon_path = _icons._findResourceIcon("despatch_icon_orange_1024.png")
+
+    expected_path = (
+        Path(__file__).parents[1] / "resources" / "icons" / "despatch_icon_orange_1024.png"
+    )
+    assert icon_path == expected_path
+    refreshing_icon = _icons.loadRefreshingIcon()
+    assert not refreshing_icon.isNull()
+    assert refreshing_icon.cacheKey() != _icons.loadProductIcon().cacheKey()
+
+
 def testEmbeddedSvgImageProducesSquareIcon(qapp, tmp_path):
     image = QtGui.QImage(30, 10, QtGui.QImage.Format_ARGB32)
     image.fill(QtGui.QColor(0, 0, 0, 0))
@@ -138,3 +150,47 @@ def testTrayMenuRequestsRefresh(qapp):
     qapp.processEvents()
 
     assert received == [True]
+
+
+def testSetRefreshingSwapsIconAndTooltip(qapp):
+    tray_icon = _tray_icon.DespatchTrayIcon()
+    tray_icon.setState(
+        _models.CatalogSnapshot(_models.StackState(_models.StackMode.PROMPT), (), (), ()),
+        (),
+        _models.StackState(_models.StackMode.AUTOMATIC),
+        frozenset(),
+    )
+    idle_tooltip = tray_icon.toolTip()
+
+    tray_icon.setRefreshing(True)
+
+    assert "Refreshing" in tray_icon.toolTip()
+    assert tray_icon.toolTip() != idle_tooltip
+
+    tray_icon.setRefreshing(False)
+
+    assert tray_icon.toolTip() == idle_tooltip
+
+
+def testSetRefreshingIsIdempotent(qapp):
+    tray_icon = _tray_icon.DespatchTrayIcon()
+
+    tray_icon.setRefreshing(True)
+    refreshing_tooltip = tray_icon.toolTip()
+    tray_icon.setRefreshing(True)
+
+    assert tray_icon.toolTip() == refreshing_tooltip
+
+
+def testSetStateWhileRefreshingKeepsRefreshingTooltip(qapp):
+    tray_icon = _tray_icon.DespatchTrayIcon()
+    tray_icon.setRefreshing(True)
+
+    tray_icon.setState(
+        _models.CatalogSnapshot(_models.StackState(_models.StackMode.PROMPT), (), (), ()),
+        (),
+        _models.StackState(_models.StackMode.AUTOMATIC),
+        frozenset(),
+    )
+
+    assert "Refreshing" in tray_icon.toolTip()
