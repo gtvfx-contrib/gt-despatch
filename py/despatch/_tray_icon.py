@@ -33,9 +33,27 @@ class DespatchTrayIcon(QtWidgets.QSystemTrayIcon):
         self._snapshot = _models.CatalogSnapshot(self._stack_state, (), (), ())
         self._stacks: tuple[_models.NamedStack, ...] = ()
         self._favorites: frozenset[str] = frozenset()
+        self._refreshing = False
         self.activated.connect(self._onActivated)
         self.setToolTip(_constants.PRODUCT_DESCRIPTION)
         self.rebuildMenu()
+
+    def setRefreshing(self, refreshing: bool) -> None:
+        """Swap the tray icon to a distinct visual while a refresh runs.
+
+        Args:
+            refreshing: Whether a catalog refresh is currently in progress.
+
+        """
+        if refreshing == self._refreshing:
+            return
+        self._refreshing = refreshing
+        self.setIcon(_icons.loadRefreshingIcon() if refreshing else _icons.loadProductIcon())
+        self.setToolTip(
+            f"{_constants.PRODUCT_NAME} · Refreshing…"
+            if refreshing
+            else f"{_constants.PRODUCT_NAME} · {self._stackLabel()}"
+        )
 
     def setState(
         self,
@@ -49,7 +67,8 @@ class DespatchTrayIcon(QtWidgets.QSystemTrayIcon):
         self._stacks = stacks
         self._stack_state = stack_state
         self._favorites = favorites
-        self.setToolTip(f"{_constants.PRODUCT_NAME} · {self._stackLabel()}")
+        if not self._refreshing:
+            self.setToolTip(f"{_constants.PRODUCT_NAME} · {self._stackLabel()}")
         self.rebuildMenu()
 
     def rebuildMenu(self) -> None:
