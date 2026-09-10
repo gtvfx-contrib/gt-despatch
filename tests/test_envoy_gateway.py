@@ -1,4 +1,5 @@
 import json
+import shlex
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -73,6 +74,25 @@ def makeApplication(in_terminal=False):
         group_id="",
         keywords=(),
         in_terminal=in_terminal,
+        order=0,
+        source_path=Path("despatch.json"),
+    )
+
+
+def makeApplicationWithArgument(argument):
+    """Return an application whose single argument requires shell quoting."""
+    return _models.ApplicationEntry(
+        stable_id="gt:test:app",
+        application_id="app",
+        bundle_id="gt:test",
+        name="Test App",
+        command="test_app",
+        args=(argument,),
+        description="",
+        icon_path=None,
+        group_id="",
+        keywords=(),
+        in_terminal=False,
         order=0,
         source_path=Path("despatch.json"),
     )
@@ -212,6 +232,44 @@ def testPromptModeDoesNotDiscoverBundles(tmp_path):
     bundles = gateway.loadBundles(_models.StackState(_models.StackMode.PROMPT))
 
     assert bundles == ()
+
+
+def testFormatCommandUsesWindowsCmdQuotingOnWindows(tmp_path, monkeypatch):
+    monkeypatch.setattr(_envoy_gateway.sys, "platform", "win32")
+    envoy_module = makeEnvoyModule(tmp_path)
+    gateway = _envoy_gateway.EnvoyGateway(envoy_module)
+    application = makeApplicationWithArgument("value with space")
+    stack_state = _models.StackState(_models.StackMode.AUTOMATIC)
+
+    command_line = gateway.formatCommand(application, stack_state)
+
+    assert command_line == 'envoy test_app "value with space"'
+
+
+def testFormatCommandUsesPosixShellQuotingElsewhere(tmp_path, monkeypatch):
+    monkeypatch.setattr(_envoy_gateway.sys, "platform", "linux")
+    envoy_module = makeEnvoyModule(tmp_path)
+    gateway = _envoy_gateway.EnvoyGateway(envoy_module)
+    application = makeApplicationWithArgument("value with space")
+    stack_state = _models.StackState(_models.StackMode.AUTOMATIC)
+
+    command_line = gateway.formatCommand(application, stack_state)
+
+    assert command_line == "envoy test_app 'value with space'"
+
+
+def testFormatCommandIncludesExplicitStackFlagWithPosixQuoting(tmp_path, monkeypatch):
+    monkeypatch.setattr(_envoy_gateway.sys, "platform", "linux")
+    envoy_module = makeEnvoyModule(tmp_path)
+    gateway = _envoy_gateway.EnvoyGateway(envoy_module)
+    application = makeApplication()
+    stack_state = explicitState(envoy_module.stack_path)
+
+    command_line = gateway.formatCommand(application, stack_state)
+
+    assert command_line == shlex.join(
+        ["envoy", "--stack", str(envoy_module.stack_path), "test_app", "--example"]
+    )
 
 
 def testCustomStackFileStateUsesSelectedPathWithoutRegistryResolution(tmp_path):
