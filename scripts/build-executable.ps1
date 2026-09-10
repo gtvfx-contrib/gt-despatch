@@ -150,7 +150,8 @@ try {
         Pop-Location
     }
 
-    if (-not (Test-Path -LiteralPath $executable_path -PathType Leaf)) {
+    $expected_output_type = if ($is_macos_platform) { "Container" } else { "Leaf" }
+    if (-not (Test-Path -LiteralPath $executable_path -PathType $expected_output_type)) {
         throw "PyInstaller completed without creating '$executable_path'."
     }
     $built_executable = Get-Item -LiteralPath $executable_path
