@@ -97,6 +97,69 @@ def testResolvesOrganizedIconBelowResourceRoot(tmp_path):
     assert not snapshot.diagnostics
 
 
+def testParsesValidHomepage(tmp_path):
+    bundle = makeBundle(tmp_path)
+    writeManifest(
+        bundle,
+        [
+            {
+                "id": "krita",
+                "name": "Krita",
+                "command": "krita",
+                "homepage": "https://krita.org",
+            }
+        ],
+    )
+
+    snapshot = _catalog.CatalogLoader(FakeGateway(bundle), "windows").loadCatalog(STACK_STATE)
+
+    assert snapshot.applications[0].homepage == "https://krita.org"
+    assert not snapshot.diagnostics
+
+
+def testOmittedHomepageDefaultsToEmpty(tmp_path):
+    bundle = makeBundle(tmp_path)
+    writeManifest(bundle, [{"id": "krita", "name": "Krita", "command": "krita"}])
+
+    snapshot = _catalog.CatalogLoader(FakeGateway(bundle), "windows").loadCatalog(STACK_STATE)
+
+    assert snapshot.applications[0].homepage == ""
+    assert not snapshot.diagnostics
+
+
+def testRejectsNonStringHomepage(tmp_path):
+    bundle = makeBundle(tmp_path)
+    writeManifest(
+        bundle,
+        [{"id": "krita", "name": "Krita", "command": "krita", "homepage": 12}],
+    )
+
+    snapshot = _catalog.CatalogLoader(FakeGateway(bundle), "windows").loadCatalog(STACK_STATE)
+
+    assert not snapshot.applications
+    assert "'homepage' must be a string" in snapshot.diagnostics[0].message
+
+
+def testRejectsNonHttpHomepage(tmp_path):
+    bundle = makeBundle(tmp_path)
+    writeManifest(
+        bundle,
+        [
+            {
+                "id": "krita",
+                "name": "Krita",
+                "command": "krita",
+                "homepage": "ftp://krita.org",
+            }
+        ],
+    )
+
+    snapshot = _catalog.CatalogLoader(FakeGateway(bundle), "windows").loadCatalog(STACK_STATE)
+
+    assert not snapshot.applications
+    assert "'homepage' must be an http(s) URL" in snapshot.diagnostics[0].message
+
+
 def testSkipsUnknownCommandsAndWrongPlatform(tmp_path):
     bundle = makeBundle(tmp_path)
     writeManifest(

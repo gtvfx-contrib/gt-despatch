@@ -91,6 +91,9 @@ class MainWindow(QtWidgets.QMainWindow):
     launchRequested = QtCore.Signal(str, bool)
     favoriteToggleRequested = QtCore.Signal(str)
     copyRequested = QtCore.Signal(str)
+    homepageRequested = QtCore.Signal(str)
+    historyClearRequested = QtCore.Signal(str)
+    hideUnusedToggled = QtCore.Signal(bool)
     stackRequested = QtCore.Signal(object)
     customStackRequested = QtCore.Signal()
     documentationRequested = QtCore.Signal()
@@ -103,6 +106,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._application_map: dict[str, _models.ApplicationEntry] = {}
         self._favorites: frozenset[str] = frozenset()
         self._recent_applications: tuple[str, ...] = ()
+        self._hide_unused = False
         self._allow_close = False
         self._populating_stacks = False
         self._active_stack_index = 0
@@ -161,6 +165,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._stack_combo.setToolTip("Active Envoy Stack")
         toolbar.addWidget(self._stack_combo, 1)
 
+        self._hide_unused_button = QtWidgets.QToolButton()
+        self._hide_unused_button.setText("Hide unused")
+        self._hide_unused_button.setToolTip("Hide applications with no favorite or launch history")
+        self._hide_unused_button.setCheckable(True)
+        toolbar.addWidget(self._hide_unused_button)
+
         self._documentation_button = QtWidgets.QToolButton()
         self._documentation_button.setText("?")
         self._documentation_button.setToolTip("Documentation")
@@ -207,6 +217,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._title_bar.minimizeRequested.connect(self.showMinimized)
         self._documentation_button.clicked.connect(self.documentationRequested)
         self._settings_button.clicked.connect(self.settingsRequested)
+        self._hide_unused_button.toggled.connect(self.hideUnusedToggled)
         self._stack_combo.currentIndexChanged.connect(self._onStackChanged)
         self._search_input.textChanged.connect(self._populateApplications)
         self._search_input.returnPressed.connect(self._launchFirstVisible)
@@ -281,12 +292,17 @@ class MainWindow(QtWidgets.QMainWindow):
         snapshot: _models.CatalogSnapshot,
         favorites: frozenset[str],
         recent_applications: tuple[str, ...],
+        hide_unused: bool = False,
     ) -> None:
         """Display a new catalog snapshot and user ranking state."""
         self._snapshot = snapshot
         self._application_map = snapshot.applicationMap()
         self._favorites = favorites
         self._recent_applications = recent_applications
+        self._hide_unused = hide_unused
+        self._hide_unused_button.blockSignals(True)
+        self._hide_unused_button.setChecked(hide_unused)
+        self._hide_unused_button.blockSignals(False)
         self._populateApplications()
 
     def setLoading(self, message: str) -> None:
@@ -377,15 +393,16 @@ class MainWindow(QtWidgets.QMainWindow):
         """Rebuild the visible catalog for the current query."""
         query = self._search_input.text().strip()
         self._application_list.clear()
+        applications = self._visibleApplications()
         if query:
-            applications = _search.rankApplications(
-                self._snapshot.applications,
+            ranked = _search.rankApplications(
+                applications,
                 query,
                 self._favorites,
                 self._recent_applications,
             )
-            if applications:
-                for application in applications:
+            if ranked:
+                for application in ranked:
                     self._addApplicationItem(application)
             else:
                 self._addEmptyItem("No applications match your search")
@@ -393,9 +410,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         displayed: set[str] = set()
         favorites = [
-            application
-            for application in self._snapshot.applications
-            if application.stable_id in self._favorites
+            application for application in applications if application.stable_id in self._favorites
         ]
         if favorites:
             self._addSection("Favorites")
@@ -417,7 +432,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for group in self._snapshot.groups:
             grouped = [
                 application
-                for application in self._snapshot.applications
+                for application in applications
                 if application.group_id == group.stable_id
                 and application.stable_id not in displayed
             ]
@@ -429,21 +444,33 @@ class MainWindow(QtWidgets.QMainWindow):
                 displayed.add(application.stable_id)
 
         ungrouped = [
-            application
-            for application in self._snapshot.applications
-            if application.stable_id not in displayed
+            application for application in applications if application.stable_id not in displayed
         ]
         if ungrouped:
             if favorites or recent or self._snapshot.groups:
                 self._addSection("Other")
             for application in ungrouped:
                 self._addApplicationItem(application)
+                displayed.add(application.stable_id)
 
         if not self._snapshot.applications:
             if self._snapshot.stack_state.mode == _models.StackMode.PROMPT:
                 self._addEmptyItem("Choose a Stack to view applications")
             else:
                 self._addEmptyItem("No applications are declared for the active Envoy Stack")
+        elif not displayed:
+            self._addEmptyItem("No applications have a favorite or launch history to show")
+
+    def _visibleApplications(self) -> tuple[_models.ApplicationEntry, ...]:
+        """Return catalog applications after the hide-unused-applications filter."""
+        if not self._hide_unused:
+            return self._snapshot.applications
+        return tuple(
+            application
+            for application in self._snapshot.applications
+            if application.stable_id in self._favorites
+            or application.stable_id in self._recent_applications
+        )
 
     def _addSection(self, section_name: str) -> None:
         """Append a non-interactive section label."""
@@ -500,6 +527,24 @@ class MainWindow(QtWidgets.QMainWindow):
         application = self._application_map.get(stable_id)
         if application is None:
             return
+        menu = self._buildApplicationMenu(stable_id, application)
+        menu.exec_(self._application_list.viewport().mapToGlobal(point))
+
+    def _buildApplicationMenu(
+        self,
+        stable_id: str,
+        application: _models.ApplicationEntry,
+    ) -> QtWidgets.QMenu:
+        """Construct the contextual actions menu for one application.
+
+        Args:
+            stable_id: Stable identity of the target application.
+            application: Resolved application entry.
+
+        Returns:
+            An unshown menu, ready to exec_() or inspect in tests.
+
+        """
         menu = QtWidgets.QMenu(self)
         terminal_action = menu.addAction("Run in terminal")
         terminal_action.triggered.connect(
@@ -517,7 +562,18 @@ class MainWindow(QtWidgets.QMainWindow):
         copy_action.triggered.connect(
             lambda checked=False, key=stable_id: self.copyRequested.emit(key)
         )
-        menu.exec_(self._application_list.viewport().mapToGlobal(point))
+        if application.homepage:
+            homepage_action = menu.addAction("Open homepage")
+            homepage_action.triggered.connect(
+                lambda checked=False, key=stable_id: self.homepageRequested.emit(key)
+            )
+        if stable_id in self._recent_applications:
+            menu.addSeparator()
+            clear_history_action = menu.addAction("Clear launch history")
+            clear_history_action.triggered.connect(
+                lambda checked=False, key=stable_id: self.historyClearRequested.emit(key)
+            )
+        return menu
 
     def _onStackChanged(self, item_index: int) -> None:
         """Request an Envoy Stack selection change."""

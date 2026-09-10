@@ -60,6 +60,7 @@ def _defaultData() -> dict[str, Any]:
         "schemaVersion": _constants.SETTINGS_SCHEMA_VERSION,
         "favorites": [],
         "recentApplications": [],
+        "hideUnusedApplications": False,
         "theme": "system",
         "keepOpenAfterLaunch": False,
         "autostart": False,
@@ -97,6 +98,11 @@ class SettingsStore:
     def recent_applications(self) -> tuple[str, ...]:
         """Stable identities ordered from most to least recent."""
         return tuple(self._data["recentApplications"])
+
+    @property
+    def hide_unused_applications(self) -> bool:
+        """Whether the launcher hides applications with no favorite or history."""
+        return self._data["hideUnusedApplications"]
 
     @property
     def theme(self) -> str:
@@ -178,6 +184,30 @@ class SettingsStore:
             recent.remove(stable_id)
         recent.insert(0, stable_id)
         self._data["recentApplications"] = recent[: _constants.MAX_RECENT_APPLICATIONS]
+        self.save()
+
+    def clearLaunchHistory(self, stable_id: str) -> None:
+        """Remove one application from launch history.
+
+        Args:
+            stable_id: Stable application identity.
+
+        """
+        recent = list(self._data["recentApplications"])
+        if stable_id not in recent:
+            return
+        recent.remove(stable_id)
+        self._data["recentApplications"] = recent
+        self.save()
+
+    def setHideUnusedApplications(self, hidden: bool) -> None:
+        """Persist whether unused applications are hidden.
+
+        Args:
+            hidden: Whether to hide applications with no favorite or history.
+
+        """
+        self._data["hideUnusedApplications"] = bool(hidden)
         self.save()
 
     def updatePreferences(
@@ -298,6 +328,8 @@ class SettingsStore:
         for key in ("keepOpenAfterLaunch", "autostart", "globalShortcutEnabled"):
             if isinstance(loaded.get(key), bool):
                 self._data[key] = loaded[key]
+        if isinstance(loaded.get("hideUnusedApplications"), bool):
+            self._data["hideUnusedApplications"] = loaded["hideUnusedApplications"]
         shortcut = loaded.get("globalShortcut")
         if isinstance(shortcut, str) and shortcut.strip():
             self._data["globalShortcut"] = shortcut.strip()

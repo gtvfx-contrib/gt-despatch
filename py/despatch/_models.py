@@ -92,6 +92,7 @@ class ApplicationEntry:
     in_terminal: bool
     order: int
     source_path: Path
+    homepage: str = ""
 
     @property
     def command_line(self) -> tuple[str, ...]:

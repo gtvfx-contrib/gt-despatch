@@ -205,3 +205,125 @@ def testFinishCatalogRefreshKeepsTrayIconRefreshingWhenRequeuing(monkeypatch):
     assert refreshing_calls == []
     assert coordinator._catalog_refresh_queued is False
     assert len(timers) == 1
+
+
+def _makeApplication(stable_id="gt:test:app", homepage=""):
+    return _models.ApplicationEntry(
+        stable_id=stable_id,
+        application_id=stable_id.rsplit(":", 1)[-1],
+        bundle_id="gt:test",
+        name="Test App",
+        command="test_app",
+        args=(),
+        description="",
+        icon_path=None,
+        group_id="",
+        keywords=(),
+        in_terminal=False,
+        order=0,
+        source_path=Path("despatch.json"),
+        homepage=homepage,
+    )
+
+
+def testClearApplicationHistoryRefreshesViews():
+    calls = []
+    coordinator = SimpleNamespace(
+        _applications={"gt:test:app": _makeApplication()},
+        _settings=SimpleNamespace(clearLaunchHistory=calls.append),
+        _refreshViews=lambda: calls.append("refreshed"),
+    )
+
+    _application.DespatchApplication._clearApplicationHistory(coordinator, "gt:test:app")
+
+    assert calls == ["gt:test:app", "refreshed"]
+
+
+def testClearApplicationHistoryIgnoresUnknownApplication():
+    calls = []
+    coordinator = SimpleNamespace(
+        _applications={},
+        _settings=SimpleNamespace(clearLaunchHistory=lambda key: calls.append(key)),
+        _refreshViews=lambda: calls.append("refreshed"),
+    )
+
+    _application.DespatchApplication._clearApplicationHistory(coordinator, "gt:test:unknown")
+
+    assert calls == []
+
+
+def testSetHideUnusedApplicationsPersistsChange():
+    calls = []
+    coordinator = SimpleNamespace(
+        _settings=SimpleNamespace(
+            hide_unused_applications=False,
+            setHideUnusedApplications=calls.append,
+        ),
+        _refreshViews=lambda: calls.append("refreshed"),
+    )
+
+    _application.DespatchApplication._setHideUnusedApplications(coordinator, True)
+
+    assert calls == [True, "refreshed"]
+
+
+def testSetHideUnusedApplicationsIsANoOpWhenUnchanged():
+    calls = []
+    coordinator = SimpleNamespace(
+        _settings=SimpleNamespace(
+            hide_unused_applications=True,
+            setHideUnusedApplications=lambda value: calls.append(value),
+        ),
+        _refreshViews=lambda: calls.append("refreshed"),
+    )
+
+    _application.DespatchApplication._setHideUnusedApplications(coordinator, True)
+
+    assert calls == []
+
+
+def testOpenApplicationHomepageIgnoresApplicationWithoutOne():
+    submitted = []
+    coordinator = SimpleNamespace(
+        _applications={"gt:test:app": _makeApplication()},
+        _submit=lambda operation, on_success, on_error: submitted.append(operation),
+    )
+
+    _application.DespatchApplication._openApplicationHomepage(coordinator, "gt:test:app")
+
+    assert submitted == []
+
+
+def testOpenApplicationHomepageOpensBrowserAndReportsSuccess(monkeypatch):
+    opened = []
+    monkeypatch.setattr(
+        _application.webbrowser,
+        "open",
+        lambda url, new=0: opened.append((url, new)) or True,
+    )
+    status_messages = []
+    coordinator = SimpleNamespace(
+        _applications={"gt:test:app": _makeApplication(homepage="https://example.com")},
+        _window=SimpleNamespace(
+            setReady=lambda message: status_messages.append(("ready", message)),
+            setError=lambda message: status_messages.append(("error", message)),
+        ),
+        _submit=lambda operation, on_success, on_error: on_success(operation()),
+    )
+
+    _application.DespatchApplication._openApplicationHomepage(coordinator, "gt:test:app")
+
+    assert opened == [("https://example.com", 2)]
+    assert status_messages == [("ready", "Opened Test App homepage in your browser")]
+
+
+def testOpenApplicationHomepageReportsFailure():
+    coordinator = SimpleNamespace(
+        _applications={"gt:test:app": _makeApplication(homepage="https://example.com")},
+        _window=SimpleNamespace(setError=lambda message: None),
+        _showErrorDialog=lambda title, message: None,
+        _submit=lambda operation, on_success, on_error: on_error(RuntimeError("no browser")),
+    )
+
+    # Must not raise even though on_error is invoked synchronously.
+    _application.DespatchApplication._openApplicationHomepage(coordinator, "gt:test:app")
