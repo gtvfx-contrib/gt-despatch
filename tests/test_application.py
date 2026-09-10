@@ -134,3 +134,74 @@ def testAutomaticReloadFailureUsesInlineHealthState():
         ("ready", None),
         ("finished", None),
     ]
+
+
+def testRequestCatalogRefreshMarksTrayIconRefreshing():
+    refreshing_calls = []
+    submitted = []
+    coordinator = SimpleNamespace(
+        _catalog_refresh_active=False,
+        _catalog_refresh_queued=False,
+        _state_generation=0,
+        _tray_icon=SimpleNamespace(setRefreshing=refreshing_calls.append),
+        _window=SimpleNamespace(setLoading=lambda message: None),
+        _stack_monitor=SimpleNamespace(suspend=lambda: None),
+        _loadState=lambda: None,
+        _submit=lambda operation, on_success, on_error: submitted.append(operation),
+    )
+
+    _application.DespatchApplication._requestCatalogRefresh(coordinator, "manual")
+
+    assert refreshing_calls == [True]
+    assert coordinator._catalog_refresh_active is True
+    assert len(submitted) == 1
+
+
+def testRequestCatalogRefreshCoalescedDoesNotReenterRefreshing():
+    refreshing_calls = []
+    coordinator = SimpleNamespace(
+        _catalog_refresh_active=True,
+        _catalog_refresh_queued=False,
+        _tray_icon=SimpleNamespace(setRefreshing=refreshing_calls.append),
+    )
+
+    _application.DespatchApplication._requestCatalogRefresh(coordinator, "manual")
+
+    assert refreshing_calls == []
+    assert coordinator._catalog_refresh_queued is True
+
+
+def testFinishCatalogRefreshClearsTrayIconWhenNotQueued():
+    refreshing_calls = []
+    coordinator = SimpleNamespace(
+        _catalog_refresh_active=True,
+        _catalog_refresh_queued=False,
+        _tray_icon=SimpleNamespace(setRefreshing=refreshing_calls.append),
+    )
+
+    _application.DespatchApplication._finishCatalogRefresh(coordinator)
+
+    assert refreshing_calls == [False]
+    assert coordinator._catalog_refresh_active is False
+
+
+def testFinishCatalogRefreshKeepsTrayIconRefreshingWhenRequeuing(monkeypatch):
+    refreshing_calls = []
+    timers = []
+    monkeypatch.setattr(
+        _application.QtCore.QTimer,
+        "singleShot",
+        staticmethod(lambda delay, callback: timers.append((delay, callback))),
+    )
+    coordinator = SimpleNamespace(
+        _catalog_refresh_active=True,
+        _catalog_refresh_queued=True,
+        _tray_icon=SimpleNamespace(setRefreshing=refreshing_calls.append),
+        refreshCatalog=lambda: None,
+    )
+
+    _application.DespatchApplication._finishCatalogRefresh(coordinator)
+
+    assert refreshing_calls == []
+    assert coordinator._catalog_refresh_queued is False
+    assert len(timers) == 1

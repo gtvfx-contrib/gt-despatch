@@ -18,6 +18,19 @@ def loadProductIcon() -> QtGui.QIcon:
     return loadPackagedIcon("despatch_icon_charcoal_1024.png")
 
 
+def loadRefreshingIcon() -> QtGui.QIcon:
+    """Return the packaged Despatch icon used while a catalog refresh runs.
+
+    Note:
+        Reuses the existing orange product-icon asset -- shipped alongside
+        the default charcoal one but previously unused anywhere -- as a
+        distinct, already-designed "busy" variant rather than introducing
+        new artwork.
+
+    """
+    return loadPackagedIcon("despatch_icon_orange_1024.png")
+
+
 def loadPackagedIcon(icon_name: str) -> QtGui.QIcon:
     """Load and cache an icon bundled with Despatch.
 
