@@ -456,8 +456,13 @@ class DespatchApplication(QtCore.QObject):
             self._window.setError(f"Could not open homepage: {message}")
             self._showErrorDialog("Homepage could not be opened", message)
 
+        def operation() -> bool:
+            if not webbrowser.open(application.homepage, new=2):
+                raise RuntimeError("No system web browser is available")
+            return True
+
         self._submit(
-            lambda: webbrowser.open(application.homepage, new=2),
+            operation,
             on_success,
             on_error,
         )
