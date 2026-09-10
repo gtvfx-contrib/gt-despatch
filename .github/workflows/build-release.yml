@@ -24,6 +24,12 @@ jobs:
       ENVOY_RELEASE: v${{ inputs.envoy_version || '0.6.2' }}
       ENVOY_BUILD_STACK: ${{ github.workspace }}/tests/fixtures/stacks/build/build.estack
       ENVOY_STACK: ${{ github.workspace }}/tests/fixtures/stacks/build/build.estack
+      # The build Stack pins its bundles as ${ENVOY_STUDIO_BNDLS}/..., so the
+      # variable must be set or the Stack fails to load outright. Prefer a
+      # repository/organization variable so a differently-provisioned runner
+      # can point at its own share without editing this workflow; the literal
+      # is only a fallback for the current self-hosted runner.
+      ENVOY_STUDIO_BNDLS: ${{ vars.ENVOY_STUDIO_BNDLS || '//THO_CLOUD/gavyn/studio/envoy/bndl' }}
 
     steps:
       - name: Checkout

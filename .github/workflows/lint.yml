@@ -16,6 +16,12 @@ jobs:
     env:
       ENVOY_BUILD_STACK: ${{ github.workspace }}/tests/fixtures/stacks/build/build.estack
       ENVOY_STACK: ${{ github.workspace }}/tests/fixtures/stacks/build/build.estack
+      # The build Stack pins its bundles as ${ENVOY_STUDIO_BNDLS}/..., so the
+      # variable must be set or the Stack fails to load outright. Prefer a
+      # repository/organization variable so a differently-provisioned runner
+      # can point at its own share without editing this workflow; the literal
+      # is only a fallback for the current self-hosted runner.
+      ENVOY_STUDIO_BNDLS: ${{ vars.ENVOY_STUDIO_BNDLS || '//THO_CLOUD/gavyn/studio/envoy/bndl' }}
 
     steps:
       - name: Checkout
@@ -54,16 +60,29 @@ jobs:
             --disable-pip-version-check --upgrade --target $sitePackages '.[dev]'
 
       - name: Verify Envoy development runtime
+        id: verify-runtime
         run: |
           envoy --version
           envoy --stack="$env:ENVOY_BUILD_STACK" --info python
           envoy --stack="$env:ENVOY_BUILD_STACK" python -c "import envoy, Qt, PySide6; print(envoy.__version__, Qt.__binding__, PySide6.__version__)"
 
+      # Tests / Ruff check / Ruff format are three *independent* checks. A
+      # step's default condition is "all previous steps succeeded", so
+      # without the guards below a test failure short-circuits the job
+      # before Ruff ever runs (and a Ruff check failure hides the format
+      # check) -- forcing several review round-trips to surface problems
+      # that could all have been reported at once. They stay gated on
+      # `verify-runtime` because a broken Envoy/Qt runtime makes all three
+      # meaningless, and `!cancelled()` (rather than `always()`) still lets
+      # an explicit workflow cancellation stop the job promptly.
       - name: Run tests
+        if: ${{ !cancelled() && steps.verify-runtime.outcome == 'success' }}
         run: envoy --stack="$env:ENVOY_BUILD_STACK" python -m pytest
 
       - name: Run Ruff check
+        if: ${{ !cancelled() && steps.verify-runtime.outcome == 'success' }}
         run: envoy --stack="$env:ENVOY_BUILD_STACK" python -m ruff check .
 
       - name: Run Ruff format check
+        if: ${{ !cancelled() && steps.verify-runtime.outcome == 'success' }}
         run: envoy --stack="$env:ENVOY_BUILD_STACK" python -m ruff format --check .
