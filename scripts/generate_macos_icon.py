@@ -15,7 +15,7 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 
-from PySide6 import QtCore, QtGui
+from Qt import QtCore, QtGui
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PNG = REPOSITORY_ROOT / "resources" / "icons" / "despatch_icon_charcoal_1024.png"
