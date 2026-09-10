@@ -8,15 +8,33 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Detect the OS via .NET reflection rather than $IsWindows/$IsMacOS/$IsLinux:
+# those automatic variables only exist under PowerShell 7+ (pwsh), and under
+# Set-StrictMode -Version Latest, referencing an undefined variable throws --
+# this keeps the script working under both pwsh (macOS/Linux/Windows CI) and
+# legacy Windows PowerShell 5.1.
+$runtime_platform = [System.Runtime.InteropServices.RuntimeInformation]
+$is_windows_platform = $runtime_platform::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
+$is_macos_platform = $runtime_platform::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::OSX)
+
 $pyinstaller_version = "6.21.0"
 $script_directory = Split-Path -Parent $PSCommandPath
 $repository_root = (Resolve-Path -LiteralPath (Join-Path $script_directory "..")).Path
 $spec_path = Join-Path $repository_root "pyinstaller.spec"
 $python_wrapper = Join-Path $script_directory "invoke-build-python.py"
 $dist_directory = Join-Path $repository_root "dist"
-$work_directory = Join-Path $repository_root "build\pyinstaller"
-$tool_directory = Join-Path $repository_root "build\pyinstaller-tools"
-$executable_path = Join-Path $dist_directory "despatch.exe"
+$work_directory = Join-Path $repository_root "build" "pyinstaller"
+$tool_directory = Join-Path $repository_root "build" "pyinstaller-tools"
+# pyinstaller.spec produces despatch.exe on Windows, a Despatch.app bundle on
+# macOS, and a plain despatch binary on Linux.
+$executable_name = if ($is_windows_platform) {
+    "despatch.exe"
+} elseif ($is_macos_platform) {
+    "Despatch.app"
+} else {
+    "despatch"
+}
+$executable_path = Join-Path $dist_directory $executable_name
 $original_python_path = $env:PYTHONPATH
 $original_console_build = $env:DESPATCH_CONSOLE_BUILD
 
@@ -132,7 +150,8 @@ try {
         Pop-Location
     }
 
-    if (-not (Test-Path -LiteralPath $executable_path -PathType Leaf)) {
+    $expected_output_type = if ($is_macos_platform) { "Container" } else { "Leaf" }
+    if (-not (Test-Path -LiteralPath $executable_path -PathType $expected_output_type)) {
         throw "PyInstaller completed without creating '$executable_path'."
     }
     $built_executable = Get-Item -LiteralPath $executable_path

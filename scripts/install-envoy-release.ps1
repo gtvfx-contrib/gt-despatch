@@ -16,6 +16,41 @@ if ($ReleaseTag -notmatch '^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
     throw "Envoy release tags must be v-prefixed semantic versions: '$ReleaseTag'."
 }
 
+# Detect the OS/architecture via .NET reflection rather than $IsWindows/
+# $IsMacOS/$IsLinux: those automatic variables only exist under PowerShell 7+
+# (pwsh), and under Set-StrictMode -Version Latest, referencing an undefined
+# variable throws -- this keeps the script working under both pwsh
+# (macOS/Linux/Windows CI) and legacy Windows PowerShell 5.1.
+$runtime_platform = [System.Runtime.InteropServices.RuntimeInformation]
+$os_platform_enum = [System.Runtime.InteropServices.OSPlatform]
+$architecture_enum = [System.Runtime.InteropServices.Architecture]
+$is_windows_platform = $runtime_platform::IsOSPlatform($os_platform_enum::Windows)
+$is_macos_platform = $runtime_platform::IsOSPlatform($os_platform_enum::OSX)
+$is_arm64 = $runtime_platform::ProcessArchitecture -eq $architecture_enum::Arm64
+
+# Each Envoy release publishes one wheel and one archive per supported
+# platform (see envoy's own build-release.yml / scripts/package_release.py);
+# pick the matching pair. Every archive shares the identical internal
+# gt/envoy/<version>/bin/<binary> layout regardless of platform.
+if ($is_windows_platform) {
+    $wheel_pattern = '^envoy-.+-cp310-abi3-win_amd64\.whl$'
+    $archive_name = "envoy-$ReleaseTag-windows-x86_64.zip"
+    $envoy_binary_name = "envoy.exe"
+} elseif ($is_macos_platform) {
+    if ($is_arm64) {
+        $wheel_pattern = '^envoy-.+-cp310-abi3-macosx_\d+_\d+_arm64\.whl$'
+        $archive_name = "envoy-$ReleaseTag-macos-aarch64.tar.gz"
+    } else {
+        $wheel_pattern = '^envoy-.+-cp310-abi3-macosx_\d+_\d+_x86_64\.whl$'
+        $archive_name = "envoy-$ReleaseTag-macos-x86_64.tar.gz"
+    }
+    $envoy_binary_name = "envoy"
+} else {
+    $wheel_pattern = '^envoy-.+-cp310-abi3-manylinux_\d+_\d+_x86_64\.manylinux2014_x86_64\.whl$'
+    $archive_name = "envoy-$ReleaseTag-linux-x86_64-musl.tar.gz"
+    $envoy_binary_name = "envoy"
+}
+
 $resolved_python = (Get-Command -Name $PythonExecutable -ErrorAction Stop).Source
 $env:PYTHONHOME = $null
 $env:PYTHONPATH = $null
@@ -35,8 +70,11 @@ if (Test-Path -LiteralPath $environment_path) {
 
 Write-Host "Creating an isolated Envoy installation at '$environment_path'."
 New-Item -ItemType Directory -Path $environment_path | Out-Null
-$site_packages_root = Join-Path $environment_path "site-packages"
-$python_site_packages = Join-Path $site_packages_root "Python311\site-packages"
+# Consumers (this repo's CI workflows) re-derive the pip install target as
+# Join-Path $env:ENVOY_SITE_PACKAGES 'site-packages' -- keep both sides in
+# sync if this layout changes.
+$site_packages_root = Join-Path $environment_path "packages"
+$python_site_packages = Join-Path $site_packages_root "site-packages"
 New-Item -ItemType Directory -Path $python_site_packages -Force | Out-Null
 
 $headers = @{
@@ -60,12 +98,11 @@ $release_uri = "https://api.github.com/repos/gtvfx-envoy/envoy/releases/tags/$es
 Write-Host "Resolving Envoy release '$ReleaseTag'."
 $release = Invoke-RestMethod -Uri $release_uri -Headers $headers
 $wheel_assets = @($release.assets | Where-Object {
-    $_.name -match '^envoy-.+-cp310-abi3-win_amd64\.whl$'
+    $_.name -match $wheel_pattern
 })
 if ($wheel_assets.Count -ne 1) {
-    throw "Expected one Windows Envoy wheel in release '$ReleaseTag'; found $($wheel_assets.Count)."
+    throw "Expected one Envoy wheel matching '$wheel_pattern' in release '$ReleaseTag'; found $($wheel_assets.Count)."
 }
-$archive_name = "envoy-$ReleaseTag-windows-x86_64.zip"
 $archive_assets = @($release.assets | Where-Object { $_.name -eq $archive_name })
 if ($archive_assets.Count -ne 1) {
     throw "Expected one '$archive_name' asset in release '$ReleaseTag'; found $($archive_assets.Count)."
@@ -119,11 +156,24 @@ $env:PYTHONPATH = $python_site_packages
 $env:PYTHONPATH = $null
 
 $release_directory = Join-Path $environment_path "release"
-Expand-Archive -LiteralPath $archive_path -DestinationPath $release_directory
-$envoy_directory = Join-Path $release_directory "gt\envoy\$ReleaseTag\bin"
-$envoy_executable = Join-Path $envoy_directory "envoy.exe"
+if ($archive_name.EndsWith(".zip")) {
+    Expand-Archive -LiteralPath $archive_path -DestinationPath $release_directory
+} else {
+    # Expand-Archive only supports .zip; Linux/macOS releases ship .tar.gz,
+    # extracted with the tar binary already present on both platforms.
+    New-Item -ItemType Directory -Path $release_directory -Force | Out-Null
+    & tar -xzf $archive_path -C $release_directory
+    if ($LASTEXITCODE -ne 0) {
+        throw "Extracting '$archive_name' with tar failed (exit code $LASTEXITCODE)."
+    }
+}
+$envoy_directory = Join-Path $release_directory "gt" "envoy" $ReleaseTag "bin"
+$envoy_executable = Join-Path $envoy_directory $envoy_binary_name
 if (-not (Test-Path -LiteralPath $envoy_executable -PathType Leaf)) {
     throw "Extracting '$archive_name' did not create '$envoy_executable'."
+}
+if (-not $is_windows_platform) {
+    & chmod +x $envoy_executable
 }
 & $envoy_executable --version
 
