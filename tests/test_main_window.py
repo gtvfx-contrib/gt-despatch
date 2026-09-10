@@ -293,6 +293,31 @@ def testHideUnusedFiltersApplicationsWithNoFavoriteOrHistory(qapp):
     window.close()
 
 
+def testUngroupedApplicationsDoNotShowEmptyStateMessage(qapp):
+    application = makeApplication("gt:test:ungrouped")
+    stack_state = _models.StackState(
+        _models.StackMode.EXPLICIT,
+        _models.StackSelection("studio", "studio", Path("studio.estack")),
+    )
+    snapshot = _models.CatalogSnapshot(stack_state, (application,), (), ())
+    window = _main_window.MainWindow()
+    window.setCatalog(snapshot, frozenset(), ())
+
+    item_texts = {
+        window._application_list.item(index).text()
+        for index in range(window._application_list.count())
+    }
+    assert "No applications have a favorite or launch history to show" not in item_texts
+    shown_ids = {
+        window._application_list.item(index).data(_main_window._APPLICATION_ROLE)
+        for index in range(window._application_list.count())
+    }
+    shown_ids.discard(None)
+    assert shown_ids == {application.stable_id}
+    window.allowClose()
+    window.close()
+
+
 def testHideUnusedButtonPersistsAndAppliesFilter(qapp):
     window = _main_window.MainWindow()
     favored = makeApplication("gt:test:favored")

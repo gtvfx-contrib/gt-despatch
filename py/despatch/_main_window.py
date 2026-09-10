@@ -451,6 +451,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._addSection("Other")
             for application in ungrouped:
                 self._addApplicationItem(application)
+                displayed.add(application.stable_id)
 
         if not self._snapshot.applications:
             if self._snapshot.stack_state.mode == _models.StackMode.PROMPT:
