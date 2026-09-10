@@ -37,8 +37,10 @@ _ICNS_ENTRIES = (
 def _encodePng(image: QtGui.QImage) -> bytes:
     """Encode a QImage as PNG bytes."""
     buffer = QtCore.QBuffer()
-    buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
-    image.save(buffer, "PNG")
+    if not buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly):
+        raise RuntimeError("Could not open QBuffer for PNG encoding")
+    if not image.save(buffer, "PNG"):
+        raise ValueError("Failed to encode image as PNG")
     return bytes(buffer.data())
 
 
