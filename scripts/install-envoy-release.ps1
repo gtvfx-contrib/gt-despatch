@@ -26,7 +26,7 @@ $os_platform_enum = [System.Runtime.InteropServices.OSPlatform]
 $architecture_enum = [System.Runtime.InteropServices.Architecture]
 $is_windows_platform = $runtime_platform::IsOSPlatform($os_platform_enum::Windows)
 $is_macos_platform = $runtime_platform::IsOSPlatform($os_platform_enum::OSX)
-$is_arm64 = $runtime_platform::OSArchitecture -eq $architecture_enum::Arm64
+$is_arm64 = $runtime_platform::ProcessArchitecture -eq $architecture_enum::Arm64
 
 # Each Envoy release publishes one wheel and one archive per supported
 # platform (see envoy's own build-release.yml / scripts/package_release.py);
