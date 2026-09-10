@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  python:
-    name: Python tests and Ruff
+  python-windows:
+    name: Python tests and Ruff (Windows)
     runs-on: [self-hosted, X64, Windows]
     env:
       ENVOY_BUILD_STACK: ${{ github.workspace }}/tests/fixtures/stacks/build/build.estack
@@ -55,7 +55,9 @@ jobs:
       - name: Install development dependencies
         shell: pwsh
         run: |
-          $sitePackages = Join-Path $env:ENVOY_SITE_PACKAGES 'Python311\site-packages'
+          # Must match the ext:python bundle's own hard-coded PYTHONPATH
+          # entry (Python311/site-packages) -- see install-envoy-release.ps1.
+          $sitePackages = Join-Path $env:ENVOY_SITE_PACKAGES 'Python311' 'site-packages'
           python -m pip install `
             --disable-pip-version-check --upgrade --target $sitePackages '.[dev]'
 
@@ -86,3 +88,106 @@ jobs:
       - name: Run Ruff format check
         if: ${{ !cancelled() && steps.verify-runtime.outcome == 'success' }}
         run: envoy --stack="$env:ENVOY_BUILD_STACK" python -m ruff format --check .
+
+  python-unix:
+    name: Python tests and Ruff (${{ matrix.os_name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            os_name: Linux
+          - runner: macos-latest
+            os_name: macOS
+    runs-on: ${{ matrix.runner }}
+    env:
+      # No display server is available on these hosted runners; Qt's default
+      # platform plugin (xcb on Linux, cocoa on macOS) needs one to open a
+      # window and aborts the process outright if it can't. Despatch's own
+      # tests construct a real QApplication (see tests/conftest.py), so the
+      # offscreen platform plugin (bundled with Qt, no native window needed)
+      # is required here -- this only affects test execution, not the
+      # windowed executable produced by build-release.yml.
+      QT_QPA_PLATFORM: offscreen
+    # No Linux/macOS build of the ext:python / ext:pyside Envoy bundles this
+    # repository's own build Stack pins exists yet (both are Windows-only
+    # prebuilt artifacts today) -- so unlike the Windows job above, this one
+    # can't resolve Python/PySide6/Qt.py through envoy's Stack mechanism at
+    # all. It installs the same PySide6/Qt.py versions pyproject.toml already
+    # pins for the executable build directly via pip instead, and runs
+    # pytest/Ruff against the runner's own Python rather than through
+    # `envoy --stack=... python ...`. This validates Despatch's own source
+    # and dependencies on both platforms; it does not exercise the
+    # Envoy-bundle-resolved developer workflow the Windows job does, since
+    # that workflow has no non-Windows bundles to resolve yet.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11.9
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11.9'
+
+      - name: Read pinned Envoy release
+        id: release-state
+        shell: pwsh
+        run: python scripts/release_automation.py check --github-output $env:GITHUB_OUTPUT
+
+      - name: Bootstrap pinned Envoy
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          ./scripts/install-envoy-release.ps1
+          -ReleaseTag "${{ steps.release-state.outputs.envoy_tag }}"
+
+      - name: Install Qt runtime libraries (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        # PySide6's wheel links against these at load time, but ubuntu-latest
+        # doesn't ship them by default -- without them, importing any Qt
+        # submodule that needs EGL/PulseAudio fails, which Qt.py's own
+        # eager-import step (Qt.py's _install()) turns into a confusing
+        # "partially initialized module" AttributeError rather than a clear
+        # missing-library error.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libpulse0
+
+      - name: Install development dependencies
+        shell: pwsh
+        run: |
+          $sitePackages = Join-Path $env:ENVOY_SITE_PACKAGES 'site-packages'
+          python -m pip install `
+            --disable-pip-version-check --upgrade --target $sitePackages `
+            '.[dev]' 'PySide6==6.11.1' 'Qt.py==2.0.5'
+
+      - name: Verify development runtime
+        id: verify-runtime
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = Join-Path $env:ENVOY_SITE_PACKAGES 'site-packages'
+          envoy --version
+          python -c "import envoy, Qt, PySide6; print(envoy.__version__, Qt.__binding__, PySide6.__version__)"
+
+      - name: Run tests
+        if: ${{ !cancelled() && steps.verify-runtime.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = Join-Path $env:ENVOY_SITE_PACKAGES 'site-packages'
+          python -m pytest --ignore=tests/test_documentation_examples.py
+
+      - name: Run Ruff check
+        if: ${{ !cancelled() && steps.verify-runtime.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = Join-Path $env:ENVOY_SITE_PACKAGES 'site-packages'
+          python -m ruff check .
+
+      - name: Run Ruff format check
+        if: ${{ !cancelled() && steps.verify-runtime.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = Join-Path $env:ENVOY_SITE_PACKAGES 'site-packages'
+          python -m ruff format --check .

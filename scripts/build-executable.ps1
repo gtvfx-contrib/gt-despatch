@@ -150,12 +150,19 @@ try {
         Pop-Location
     }
 
-    $expected_output_type = if ($is_macos_platform) { "Container" } else { "Leaf" }
-    if (-not (Test-Path -LiteralPath $executable_path -PathType $expected_output_type)) {
+    # Despatch.app on macOS is a bundle *directory*, not a single file --
+    # Test-Path/Get-Item must branch on Container vs Leaf accordingly, or
+    # this check (and the byte-size report below) always fails there.
+    $expected_path_type = if ($is_macos_platform) { "Container" } else { "Leaf" }
+    if (-not (Test-Path -LiteralPath $executable_path -PathType $expected_path_type)) {
         throw "PyInstaller completed without creating '$executable_path'."
     }
     $built_executable = Get-Item -LiteralPath $executable_path
-    Write-Host "Built $($built_executable.FullName) ($($built_executable.Length) bytes)"
+    if ($is_macos_platform) {
+        Write-Host "Built $($built_executable.FullName)"
+    } else {
+        Write-Host "Built $($built_executable.FullName) ($($built_executable.Length) bytes)"
+    }
 } finally {
     $env:PYTHONPATH = $original_python_path
     $env:DESPATCH_CONSOLE_BUILD = $original_console_build
