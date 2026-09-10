@@ -277,7 +277,7 @@ jobs:
         shell: pwsh
         run: |
           $binary = if ('${{ matrix.os_name }}' -eq 'macOS') {
-            Join-Path (Join-Path (Join-Path 'dist' 'Despatch.app') 'Contents' 'MacOS') 'Despatch'
+            Join-Path (Join-Path (Join-Path 'dist' 'Despatch.app') 'Contents' 'MacOS') 'despatch'
           } else {
             Join-Path 'dist' 'despatch'
           }
